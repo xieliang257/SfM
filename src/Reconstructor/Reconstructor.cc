@@ -403,25 +403,24 @@ bool Reconstructor::PnPPose(int frameId, cv::Mat& R_i_w, cv::Mat& t_i_w) {
 		return false;
 	}
 
-	// Compute centroid and variance of observed points to assess distribution
+	// Calculate the determinant of the covariance matrix of observed points to assess their distribution
 	cv::Point2f sumpt(0.f, 0.f);
 	for (auto p : observes) {
 		sumpt += p;
 	}
 	sumpt *= 1. / observes.size();
-	cv::Mat M = cv::Mat::zeros(2, 2, CV_32F);
+	cv::Mat M = cv::Mat::zeros(2, 2, CV_64F);
 	for (auto p : observes) {
-		cv::Mat v(2, 1, CV_32F);
-		v.at<float>(0, 0) = p.x - sumpt.x;
-		v.at<float>(1, 0) = p.y - sumpt.y;
+		cv::Mat v(2, 1, CV_64F);
+		v.at<double>(0, 0) = p.x - sumpt.x;
+		v.at<double>(1, 0) = p.y - sumpt.y;
 		M += v * v.t();
 	}
 	M /= objects.size();
-	std::vector<float> values;
-	cv::eigen(M, values);
+	double detVal = cv::determinant(M);
 
 	// Ensure points are well distributed
-	if (sqrt(values[0] * values[1]) < 150 * 150) {
+	if (sqrt(detVal) < 150 * 150) {
 		return false;
 	}
 

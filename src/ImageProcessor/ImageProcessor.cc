@@ -1,7 +1,15 @@
 #include <iostream>
-#include <io.h>
 #include <fstream>
+
+#ifdef _WIN32
 #include <direct.h>
+#include <io.h>
+#else
+#include <dirent.h>
+#include <fnmatch.h>
+#include <cstdint>
+#endif
+
 #include <thread>
 #include "ImageProcessor/ImageProcessor.h"
 
@@ -53,9 +61,8 @@ const std::shared_ptr<AllMatchesType>& ImageProcessor::MatchesPtr() {
  */
 void ImageProcessor::ExtractAndMatchAll(const std::string& imgDir) {
     // Read previously processed frame data and matching data from a file.
-    std::string pathToSave = workDir_ + "/Match";
-    ReadFrames(pathToSave + "/Frames.txt", pFrames_);
-    ReadMatches(pathToSave + "/Matches.txt", pMatches_);
+    ReadFrames(workDir_ + "/Frames.txt", pFrames_);
+    ReadMatches(workDir_ + "/Matches.txt", pMatches_);
 
     // Check if the frames and matches are already loaded and valid; if so, exit early.
     if (pFrames_ && pMatches_ && pFrames_->size() > 0 && pMatches_->size() > 0) {
@@ -64,8 +71,8 @@ void ImageProcessor::ExtractAndMatchAll(const std::string& imgDir) {
 
     // Collect paths of images in the specified directory with png and jpg extensions.
     std::vector<std::string> imgPaths;
-    CollectImagePath(imgDir + "/", "*.png", imgPaths);
-    CollectImagePath(imgDir + "/", "*.jpg", imgPaths);
+    CollectImagePath(imgDir + "/", "png", imgPaths);
+    CollectImagePath(imgDir + "/", "jpg", imgPaths);
 
     // Define a lambda function to compare two image paths based on their size and lexicographical order.
     auto PathCompare = [](const std::string& s1, const std::string& s2) {
@@ -97,9 +104,8 @@ void ImageProcessor::ExtractAndMatchAll(const std::string& imgDir) {
     MatchAll();
 
     // Save the frames and matches back to files for future use.
-    mkdir(pathToSave.c_str());
-    SaveFrames(workDir_ + "/Match/Frames.txt", pFrames_);
-    SaveMatches(workDir_ + "/Match/Matches.txt", pMatches_);
+    SaveFrames(workDir_ + "/Frames.txt", pFrames_);
+    SaveMatches(workDir_ + "/Matches.txt", pMatches_);
 }
 
 void ImageProcessor::ReadMatches(const std::string& path, std::shared_ptr<AllMatchesType>& pMatches) {
@@ -195,6 +201,7 @@ void ImageProcessor::SaveFrames(const std::string& path, const std::shared_ptr<s
     out.close();
 }
 
+#ifdef _WIN32
 void CollectImagePath(const std::string& dirPath, std::string format, std::vector<std::string>& files) {
     intptr_t hFile = 0;
     struct _finddata_t fileInfo;
@@ -206,6 +213,26 @@ void CollectImagePath(const std::string& dirPath, std::string format, std::vecto
         _findclose(hFile);
     }
 }
+#else
+void CollectImagePath(const std::string& dirPath, std::string format, std::vector<std::string>& files) {
+    DIR* dir = opendir(dirPath.c_str());
+    if (!dir) {
+        return;
+    }
+
+    struct dirent* entry;
+    std::string pattern = "*." + format;
+    while ((entry = readdir(dir)) != nullptr) {
+        if (entry->d_name[0] == '.') {
+            continue;
+        }
+        if (fnmatch(pattern.c_str(), entry->d_name, 0) == 0) {
+            files.push_back(dirPath + "/" + entry->d_name);
+        }
+    }
+    closedir(dir);
+}
+#endif
 
 /**
  * @brief Matches features across all frames to build a comprehensive set of inter-frame correspondences.
@@ -360,18 +387,18 @@ void RemoveByMatchGraph(AllMatchesType& matches) {
         for (int j = 0; j < i; ++j) {
             int n = matches[i][j].size();
             if (n > 0) {
-                matchGraph.at<_int32>(i, j) = matchGraph.at<_int32>(j, i) = n;
+                matchGraph.at<int>(i, j) = matchGraph.at<int>(j, i) = n;
             }
         }
     }
 
     // Determine the significance threshold for each row in the match graph.
     for (int i = 0; i < matchGraph.rows; ++i) {
-        _int32 maxCnt = 0;
-        std::vector<_int32> cntList;
+        int maxCnt = 0;
+        std::vector<int> cntList;
         for (int j = 0; j < matchGraph.cols; ++j) {
-            maxCnt = std::max(maxCnt, matchGraph.at<_int32>(i, j));
-            cntList.push_back(matchGraph.at<_int32>(i, j));
+            maxCnt = std::max(maxCnt, matchGraph.at<int>(i, j));
+            cntList.push_back(matchGraph.at<int>(i, j));
         }
         std::sort(cntList.begin(), cntList.end());
         // Set threshold to one-fifth of the maximum count.
@@ -387,8 +414,8 @@ void RemoveByMatchGraph(AllMatchesType& matches) {
 
         // Apply the threshold, discarding matches that do not meet the criteria.
         for (int j = 0; j < matchGraph.cols; ++j) {
-            if (matchGraph.at<_int32>(i, j) < cntThreshold) {
-                matchGraph.at<_int32>(i, j) = 0;
+            if (matchGraph.at<int>(i, j) < cntThreshold) {
+                matchGraph.at<int>(i, j) = 0;
             }
         }
     }
@@ -396,15 +423,15 @@ void RemoveByMatchGraph(AllMatchesType& matches) {
     // Ensure the match graph is symmetric.
     for (int i = 0; i < matchGraph.rows; ++i) {
         for (int j = 0; j < matchGraph.cols; ++j) {
-            matchGraph.at<_int32>(i, j) = matchGraph.at<_int32>(j, i) =
-                std::max(matchGraph.at<_int32>(i, j), matchGraph.at<_int32>(j, i));
+            matchGraph.at<int>(i, j) = matchGraph.at<int>(j, i) =
+                std::max(matchGraph.at<int>(i, j), matchGraph.at<int>(j, i));
         }
     }
 
     // Clear the match lists based on the updated match graph values.
     for (int i = 0; i < matches.size(); ++i) {
         for (int j = 0; j < matches[i].size(); ++j) {
-            if (matches[i][j].size() > matchGraph.at<_int32>(i, j)) {
+            if (matches[i][j].size() > matchGraph.at<int>(i, j)) {
                 matches[i][j].clear();
             }
         }
@@ -525,7 +552,11 @@ void MixMatching(const cv::Mat& desc1, const cv::Mat& desc2, const std::vector<u
             std::vector<int> costHist(129, 0);
             for (int j = 0; j < row2; ++j) {
                 // Compute Hamming distance.
+#ifdef _WIN32
                 auto c = __popcnt64(b1 ^ bin2[0]) + __popcnt64(b2 ^ bin2[1]);
+#else
+                auto c = __builtin_popcountll(b1 ^ bin2[0]) + __builtin_popcountll(b2 ^ bin2[1]);
+#endif
                 costHist[c]++;
                 costList[j] = c;
                 bin2 += 2;

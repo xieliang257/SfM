@@ -1,7 +1,6 @@
 #include <string>
-#include <System.h>
 #include <fstream>
-#include "direct.h"
+#include "System.h"
 
 namespace sfm {
 System::System(const std::string& configFile, const std::string& workDir) {
