@@ -1,0 +1,13 @@
+%YAML:1.0
+---
+feature:
+  feature_count: 8000
+
+camera:
+  f: 600
+  cx: 360
+  cy: 640
+  dist_coeffs: [0.0]
+
+optimize_intrinsic_params: true
+share_intrinsic_params: true
