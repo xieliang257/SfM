@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.5)
 
-if(_WIN32)
+if(WIN32)
 set(VCPKG_TOOLCHAIN_FILE "E:/vcpkg/scripts/buildsystems/vcpkg.cmake" CACHE PATH "Path to vcpkg toolchain file")
 set(CMAKE_TOOLCHAIN_FILE ${VCPKG_TOOLCHAIN_FILE})
 endif()
