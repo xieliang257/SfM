@@ -149,6 +149,9 @@ void ImageProcessor::ReadFrames(const std::string& path, std::shared_ptr<std::ve
     for (int i = 0; i < frameCnt; ++i) {
         Frame frame(configFile_, workDir_);
         in >> frame.imagePath_;
+        int width, height;
+        in >> width >> height;
+        frame.SetImageSize(cv::Size(width, height));
         int kpts;
         in >> kpts;
         for (int j = 0; j < kpts; ++j) {
@@ -190,6 +193,7 @@ void ImageProcessor::SaveFrames(const std::string& path, const std::shared_ptr<s
     out << frames.size() << "\n";
     for (const auto& frame : frames) {
         out << frame.imagePath_ << "\n";
+        out << frame.Width() << " " << frame.Height() << "\n";
         out << frame.keypointList_.size() << "\n";
         for (const auto& kpt : frame.keypointList_) {
             out << float(kpt.pt.x) << " " << float(kpt.pt.y) << "\n";
