@@ -91,3 +91,7 @@ Linux:
 	cd build
 	cmake ..
 	make
+
+Note:
+    If the camera is uncalibrated, please set the focal length to -1 in the configuration parameters. The initial focal length will be automatically calculate. 
+    If optimization of internal parameters is specified, the focal length and distortion coefficients will also be optimized during the bundle adjustment (BA) process.
