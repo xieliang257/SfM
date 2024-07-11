@@ -10,12 +10,13 @@ public:
 	bool LoadAndExtract(const std::string& path);
 	void SetPose(const cv::Mat& R_i_0, const cv::Mat& t_i_0);
 	void SetIntrinsics(const double* intrinsicsPtr, const size_t intrinsicsSize);
+	void SetImageSize(const cv::Size size);
 	const cv::Mat& GetPose();
 	const cv::Mat& RotationMatrix();
 	const cv::Mat& TranslationVector();
 	const cv::Mat& CameraMat();
-	const int Width();
-	const int Height();
+	const int Width() const;
+	const int Height() const;
 	const int LowResWidth();
 	const int LowResHeight();
 	std::vector<int> GetKeypointsId();

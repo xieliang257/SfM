@@ -45,6 +45,10 @@ void Frame::SetPose(const cv::Mat& R_i_0, const cv::Mat& t_i_0) {
     hasPose_ = true;
 }
 
+void Frame::SetImageSize(const cv::Size size) {
+    imgSize_ = size;
+}
+
 /**
  * @brief Sets the camera's intrinsic parameters and updates the camera matrix and distortion coefficients.
  *
@@ -70,11 +74,11 @@ void Frame::SetIntrinsics(const double* intrinsicsPtr, const size_t intrinsicsSi
     }
 }
 
-const int Frame::Width() {
+const int Frame::Width() const {
     return imgSize_.width;
 }
 
-const int Frame::Height() {
+const int Frame::Height() const {
     return imgSize_.height;
 }
 
