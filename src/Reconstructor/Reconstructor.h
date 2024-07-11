@@ -38,6 +38,20 @@ public:
 	}
 
 private:
+	/**
+	 * Estimates the focal length of a camera based on multiple sets of matched points across different images.
+	 * This function uses the field of view (FoV) to iteratively refine the estimate of the camera's focal length.
+	 * The estimation process involves calculating the fundamental matrix for pairs of matched points, converting
+	 * this to an essential matrix, and then using singular value decomposition (SVD) to assess the quality of the
+	 * essential matrix. The essential matrix's validity is confirmed by ensuring the smallest singular value is zero
+	 * and the first two singular values are equal, which is crucial for a valid camera geometry representation.
+	 *
+	 * Returns:
+	 * - The estimated median focal length if a sufficient number of focal lengths can be estimated from the data.
+	 *   If not enough data is available, it returns the average of the cx and cy parameters from the first frame's
+	 *   intrinsic values, which provides a basic approximation.
+	 */
+	double EstimateFocal();
 
 	/**
 	 * @brief Initializes the structure from motion (SfM) reconstruction process by finding and setting the initial pair of frames.
@@ -122,8 +136,10 @@ private:
 	 * Unlike LocalBA, GlobalBA optimizes the entire structure and camera parameters throughout
 	 * the entire dataset to ensure overall consistency and accuracy. It includes the first and
 	 * second frames as constants to anchor the global solution and minimize drift.
+	 * 
+	 * @param maxIterations Maximum iterations for bundle adjustment
 	 */
-	void GlobalBA();
+	void GlobalBA(int maxIterations = 10);
 
 	/**
 	 * @brief Implements the bundle adjustment process for optimizing frame poses and feature positions.
@@ -134,8 +150,9 @@ private:
 	 * on the parameters like fixed principal points.
 	 *
 	 * @param constantFrameIds Vector of frame IDs that should remain constant during the adjustment, typically including anchor frames.
+	 * @param maxIterations Maximum iterations for bundle adjustment
 	 */
-	void BAImplement(const std::vector<int>& constantFrameIds);
+	void BAImplement(const std::vector<int>& constantFrameIds, int maxIterations = 10);
 
 	/**
 	 * @brief Checks the need for and performs re-triangulation on all SFM features.

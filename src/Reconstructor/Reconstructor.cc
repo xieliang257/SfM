@@ -42,8 +42,25 @@ void Reconstructor::Reconstruct(const std::shared_ptr<std::vector<Frame>>& pFram
 	featureManager_->BuildSFMFeatureMap(pFrames_, pMatches_);
 	pSfmFeatures_ = featureManager_->SFMFeaturesPtr();
 
+	// If the initial focal length is not set (f < 0), estimate it using matched points across frames, 
+	// and update all frames' intrinsic matrices with the new focal length.
+	if (pFrames_->front().intrinsics_[0] < 0) {
+		std::cout << "Estimating initial focal length...";
+		auto tEstFocal0 = cv::getTickCount();
+		double fInit = EstimateFocal();
+		double estFocalCost = double(cv::getTickCount() - tEstFocal0) / cv::getTickFrequency();
+		std::cout << "\rInitial focal length: " << fInit << " Cost: " << estFocalCost << " s\n";
+		for (int i = 0; i < (*pFrames_).size(); ++i) {
+			auto intrinsics = (*pFrames_)[i].intrinsics_;
+			intrinsics[0] = fInit;
+			(*pFrames_)[i].SetIntrinsics(intrinsics.data(), intrinsics.size());
+		}
+	}
+
 	// Attempt to start the reconstruction; exit if not successful.
+	std::cout << "Starting SFM...";
 	if (!Start()) {
+		std::cout << "\rCannot start sfm\n";
 		return;
 	}
 
@@ -58,9 +75,11 @@ void Reconstructor::Reconstruct(const std::shared_ptr<std::vector<Frame>>& pFram
 		}
 		++solvedFrames;
 
-		// Perform global bundle adjustment every 10 frames.
-		if (solvedFrames % 10 == 0) {
-			GlobalBA();
+		// Perform global bundle adjustment every step frames.
+		int step = solvedFrames < 50 ? 5 : 10;
+		if (solvedFrames % step == 0) {
+			int iterations = solvedFrames <= 30 ? 30 : 10;
+			GlobalBA(iterations);
 		}
 
 		// Retrieve keypoints' IDs for the current frame and perform checks and re-triangulation.
@@ -74,7 +93,8 @@ void Reconstructor::Reconstruct(const std::shared_ptr<std::vector<Frame>>& pFram
 	}
 
 	// Final global bundle adjustment after all frames are processed.
-	GlobalBA();
+	GlobalBA(30);
+	std::cout << "\nFinal focal length: " << pFrames_->front().intrinsics_[0] << "\n";
 
 	// Perform a final check and re-triangulation for all features.
 	double reprojErrThr = 1., cosAngThr = cos(3 * CV_PI / 180);
@@ -124,6 +144,99 @@ bool Reconstructor::Start() {
 		sfmFeatures[kpt.class_id].Triangulate(pFrames_, 5, cosAngleThreahold);
 	}
 	return true;
+}
+
+/**
+ * Estimates the focal length of a camera based on multiple sets of matched points across different images.
+ * This function uses the field of view (FoV) to iteratively refine the estimate of the camera's focal length.
+ * The estimation process involves calculating the fundamental matrix for pairs of matched points, converting
+ * this to an essential matrix, and then using singular value decomposition (SVD) to assess the quality of the
+ * essential matrix. The essential matrix's validity is confirmed by ensuring the smallest singular value is zero
+ * and the first two singular values are equal, which is crucial for a valid camera geometry representation.
+ *
+ * Returns:
+ * - The estimated median focal length if a sufficient number of focal lengths can be estimated from the data.
+ *   If not enough data is available, it returns the average of the cx and cy parameters from the first frame's
+ *   intrinsic values, which provides a basic approximation.
+ */
+double Reconstructor::EstimateFocal() {
+	// Helper lambda to estimate initial focal length using FoV and geometric transformations
+	auto EstimateInitFocal = [](const std::vector<cv::Point2f>&ps1, const std::vector<cv::Point2f>&ps2, double cx, double cy) {
+		// Find the fundamental matrix between two sets of points
+		cv::Mat F = cv::findFundamentalMat(ps1, ps2, cv::FM_RANSAC, 0.5);
+
+		double maxr = 0., bestf = 0., bestFov = 10.;
+		double startFov = 10., endFov = 170.1, fovStep = 2;
+
+		// Iteratively refine the estimate for focal length by adjusting the field of view
+		for (int iter = 0; iter < 2; ++iter) {
+			for (double fov = startFov; fov < endFov; fov += fovStep) {
+				double f = cx / tan(fov * CV_PI / 180 / 2);
+				double kdata[] = { f,0,cx,0,f,cy,0,0,1 };
+				cv::Mat K(3, 3, CV_64F, kdata);
+				cv::Mat E = K.t() * F * K;			
+
+				// Perform SVD on the essential matrix E computed from the fundamental matrix F. 
+				// The essential matrix should have its smallest singular value equal to zero, 
+				// and its first two singular values should be equal. This equality is a necessary and 
+				// sufficient condition for E to be a valid essential matrix. We use the ratio of the 
+				// first two singular values compared to 1 to assess the quality of E.
+				cv::Mat U, W, VT;
+				cv::normalize(E, E);
+				cv::SVDecomp(E, W, U, VT);
+				double r = W.at<double>(1, 0) / std::max(W.at<double>(0, 0), 1e-20);
+				if (maxr < r) {
+					maxr = r;
+					bestf = f;
+					bestFov = fov;
+				}
+			}
+			startFov = std::max(startFov, bestFov - fovStep);
+			endFov = std::min(endFov, bestFov + fovStep);
+			fovStep = 0.1;
+		}
+
+		return bestf;
+	};
+
+	const AllMatchesType& matches = *pMatches_;
+	std::vector<Frame>& frames = *pFrames_;
+	double cx = (*pFrames_)[0].intrinsics_[1];
+	double cy = (*pFrames_)[0].intrinsics_[2];
+	std::vector<double> focalList;
+	for (int i = 0; i < matches.size(); ++i) {
+		bool isEnough = false;
+		for (int j = 0; j < matches[i].size(); ++j) {
+			if (matches[i][j].size() >= 100) {
+				// Extract matched points for focal length estimation
+				std::vector<cv::Point2f> pts1, pts2;
+				for (const auto& m : matches[i][j]) {
+					int id1 = m.queryIdx;
+					int id2 = m.trainIdx;
+					pts1.push_back(frames[i].keypointList_[id1].pt);
+					pts2.push_back(frames[j].keypointList_[id2].pt);
+				}
+				double f = EstimateInitFocal(pts1, pts2, cx, cy);
+				focalList.push_back(f);
+				if (focalList.size() > 600) {
+					isEnough = true;
+					break;
+				}
+			}
+		}
+		if (isEnough) {
+			break;
+		}
+	}
+
+	// Calculate median of estimated focal lengths if enough data has been accumulated
+	if (focalList.size() > 10) {
+		std::sort(focalList.begin(), focalList.end());
+		return focalList[focalList.size() / 2];
+	}
+
+	// Return the average of cx and cy if not enough focal length estimates are obtained
+	return (cx + cy) / 2;
 }
 
 /**
@@ -420,7 +533,8 @@ bool Reconstructor::PnPPose(int frameId, cv::Mat& R_i_w, cv::Mat& t_i_w) {
 	double detVal = cv::determinant(M);
 
 	// Ensure points are well distributed
-	if (sqrt(detVal) < 150 * 150) {
+	int areaThreshold = pFrames_->front().Width()* pFrames_->front().Height() * 0.01;
+	if (sqrt(detVal) < areaThreshold) {
 		return false;
 	}
 
@@ -566,10 +680,12 @@ void Reconstructor::LocalBA(int incrementId) {
  * Unlike LocalBA, GlobalBA optimizes the entire structure and camera parameters throughout
  * the entire dataset to ensure overall consistency and accuracy. It includes the first and
  * second frames as constants to anchor the global solution and minimize drift.
+ * 
+ * @param maxIterations Maximum iterations for bundle adjustment
  */
-void Reconstructor::GlobalBA() {
+void Reconstructor::GlobalBA(int maxIterations) {
 	std::vector<int> constantFrameIds = { startPair_.first, startPair_.second };
-	BAImplement(constantFrameIds);
+	BAImplement(constantFrameIds, maxIterations);
 }
 
 /**
@@ -581,8 +697,9 @@ void Reconstructor::GlobalBA() {
  * on the parameters like fixed principal points.
  *
  * @param constantFrameIds Vector of frame IDs that should remain constant during the adjustment, typically including anchor frames.
+ * @param maxIterations Maximum iterations for bundle adjustment
  */
-void Reconstructor::BAImplement(const std::vector<int>& constantFrameIds) {
+void Reconstructor::BAImplement(const std::vector<int>& constantFrameIds, int maxIterations) {
 	// Caches for object points, camera poses, and intrinsics
 	std::vector<double> objCache(pSfmFeatures_->size() * 3);
 	std::vector<double> poseCache(pFrames_->size() * 6);
@@ -727,7 +844,7 @@ void Reconstructor::BAImplement(const std::vector<int>& constantFrameIds) {
 	// Configure and run the solver
 	ceres::Solver::Options opt;
 	opt.sparse_linear_algebra_library_type = ceres::SUITE_SPARSE;
-	opt.max_num_iterations = 10;
+	opt.max_num_iterations = maxIterations;
 	opt.parameter_tolerance = 1e-6;
 	opt.linear_solver_type = ceres::DENSE_SCHUR;
 	opt.minimizer_progress_to_stdout = false;
