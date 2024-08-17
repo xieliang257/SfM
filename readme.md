@@ -19,34 +19,30 @@ reconstruct three-dimensional structures from multiple photographs. Aiming to pr
 
 ## Installation Guide
 
-Windows Installation
+### Windows Installation
 
 It is recommended to use [vcpkg](https://github.com/microsoft/vcpkg) to manage and install project dependencies to simplify the configuration process.
 
-1. **Install vcpkg** (if not already installed):
-  ```bash
+- **Install vcpkg** (if not already installed):
    git clone https://github.com/Microsoft/vcpkg.git
    cd vcpkg
    ./bootstrap-vcpkg.bat
    ./vcpkg integrate install
    
-2. **Install Ceres Solver via vcpkg**:
-  ```bash
+- **Install Ceres Solver via vcpkg**:
   vcpkg install ceres:x64-windows
 
-4. **OpenCV**:
-- We recommend downloading the precompiled binaries of OpenCV directly from (https://opencv.org/releases/).
+- **OpenCV**:
+  We recommend downloading the precompiled binaries of OpenCV directly from (https://opencv.org/releases/).
   This approach simplifies the installation process, especially for users who may not be familiar with building from source.
   
-Linux Installation
+### Linux Installation
 
-1. **Install Denpendencies**:
-  ```bash
+- **Install Denpendencies**:
   sudo apt-get update
   sudo apt-get install -y git cmake build-essential libopencv-dev libeigen3-dev
 	
-2. **Install Ceres Solver:**:
-  ```bash
+- **Install Ceres Solver:**:
   sudo apt-get install -y libgoogle-glog-dev libgflags-dev libatlas-base-dev libsuitesparse-dev
   git clone https://ceres-solver.googlesource.com/ceres-solver
   mkdir ceres-bin
@@ -55,8 +51,7 @@ Linux Installation
   make -j4
   sudo make install
 	
-3. **Install OpenCV 4.4.0 or higher**:
-  ```bash
+- **Install OpenCV 4.4.0 or higher**:
   sudo apt-get install -y libopencv-dev
   sudo apt-get remove -y libopencv-dev
   sudo apt-get install -y build-essential cmake git libgtk2.0-dev pkg-config libavcodec-dev libavformat-dev libswscale-dev
@@ -73,17 +68,16 @@ Linux Installation
 	
 ## Building the Project
 
-Windows:
-The project is built using CMake. For ease of configuration, it's recommended to use CMake GUI.
+### Windows:
+  The project is built using CMake. For ease of configuration, it's recommended to use CMake GUI.
+  You can download CMake GUI from (https://cmake.org/download/).
 
-- **Download CMake GUI**: You can download CMake GUI from (https://cmake.org/download/).
-
-Linux:
+### Linux:
   mkdir build
   cd build
   cmake ..
   make
 
-Note:
+## Note:
   If the camera is uncalibrated, please set the focal length to -1 in the configuration parameters. The initial focal length will be automatically calculate. 
   If optimization of internal parameters is specified, the focal length and distortion coefficients will also be optimized during the bundle adjustment (BA) process.
