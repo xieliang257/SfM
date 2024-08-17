@@ -24,13 +24,17 @@ reconstruct three-dimensional structures from multiple photographs. Aiming to pr
 It is recommended to use [vcpkg](https://github.com/microsoft/vcpkg) to manage and install project dependencies to simplify the configuration process.
 
 - **Install vcpkg** (if not already installed):
+   ```bash
    git clone https://github.com/Microsoft/vcpkg.git
    cd vcpkg
    ./bootstrap-vcpkg.bat
    ./vcpkg integrate install
+   ```bash
    
 - **Install Ceres Solver via vcpkg**:
+  ```bash
   vcpkg install ceres:x64-windows
+  ```bash
 
 - **OpenCV**:
   We recommend downloading the precompiled binaries of OpenCV directly from (https://opencv.org/releases/).
@@ -39,10 +43,13 @@ It is recommended to use [vcpkg](https://github.com/microsoft/vcpkg) to manage a
 ### Linux Installation
 
 - **Install Denpendencies**:
+  ```bash
   sudo apt-get update
   sudo apt-get install -y git cmake build-essential libopencv-dev libeigen3-dev
+  ```bash
 	
 - **Install Ceres Solver:**:
+  ```bash
   sudo apt-get install -y libgoogle-glog-dev libgflags-dev libatlas-base-dev libsuitesparse-dev
   git clone https://ceres-solver.googlesource.com/ceres-solver
   mkdir ceres-bin
@@ -50,8 +57,10 @@ It is recommended to use [vcpkg](https://github.com/microsoft/vcpkg) to manage a
   cmake ../ceres-solver
   make -j4
   sudo make install
+  ```bash
 	
 - **Install OpenCV 4.4.0 or higher**:
+  ```bash
   sudo apt-get install -y libopencv-dev
   sudo apt-get remove -y libopencv-dev
   sudo apt-get install -y build-essential cmake git libgtk2.0-dev pkg-config libavcodec-dev libavformat-dev libswscale-dev
@@ -65,6 +74,7 @@ It is recommended to use [vcpkg](https://github.com/microsoft/vcpkg) to manage a
   cmake -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr/local ..
   make -j4
   sudo make install
+  ```bash
 	
 ## Building the Project
 
@@ -73,10 +83,12 @@ It is recommended to use [vcpkg](https://github.com/microsoft/vcpkg) to manage a
   You can download CMake GUI from (https://cmake.org/download/).
 
 ### Linux:
+  ```bash
   mkdir build
   cd build
   cmake ..
   make
+  ```bash
 
 ## Note:
   If the camera is uncalibrated, please set the focal length to -1 in the configuration parameters. The initial focal length will be automatically calculate. 
