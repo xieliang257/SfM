@@ -29,24 +29,23 @@ It is recommended to use [vcpkg](https://github.com/microsoft/vcpkg) to manage a
    cd vcpkg
    ./bootstrap-vcpkg.bat
    ./vcpkg integrate install
-   ```bash
-   
+   ```
+
 - **Install Ceres Solver via vcpkg**:
   ```bash
   vcpkg install ceres:x64-windows
-  ```bash
+  ```
 
 - **OpenCV**:
   We recommend downloading the precompiled binaries of OpenCV directly from (https://opencv.org/releases/).
   This approach simplifies the installation process, especially for users who may not be familiar with building from source.
   
 ### Linux Installation
-
 - **Install Denpendencies**:
   ```bash
   sudo apt-get update
   sudo apt-get install -y git cmake build-essential libopencv-dev libeigen3-dev
-  ```bash
+  ```
 	
 - **Install Ceres Solver:**:
   ```bash
@@ -57,7 +56,7 @@ It is recommended to use [vcpkg](https://github.com/microsoft/vcpkg) to manage a
   cmake ../ceres-solver
   make -j4
   sudo make install
-  ```bash
+  ```
 	
 - **Install OpenCV 4.4.0 or higher**:
   ```bash
@@ -74,7 +73,7 @@ It is recommended to use [vcpkg](https://github.com/microsoft/vcpkg) to manage a
   cmake -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr/local ..
   make -j4
   sudo make install
-  ```bash
+  ```
 	
 ## Building the Project
 
@@ -88,7 +87,7 @@ It is recommended to use [vcpkg](https://github.com/microsoft/vcpkg) to manage a
   cd build
   cmake ..
   make
-  ```bash
+  ```
 
 ## Note:
   If the camera is uncalibrated, please set the focal length to -1 in the configuration parameters. The initial focal length will be automatically calculate. 
