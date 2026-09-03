@@ -100,7 +100,7 @@ public:
 				undistObserves.push_back(undistPt);
 				KList.push_back(frames[imageId].K_.clone());
 				TList.push_back(frames[imageId].GetPose().clone());
-				KList.push_back(frames[imageId].K_.clone());
+				// KList.push_back(frames[imageId].K_.clone());
 			}
 		}
 

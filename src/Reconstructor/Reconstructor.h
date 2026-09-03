@@ -2,6 +2,7 @@
 
 #include <ceres/ceres.h>
 #include <ceres/rotation.h>
+#include <functional>
 #include "ImageProcessor/ImageProcessor.h"
 #include "FeatureManager/FeatureManager.h"
 
@@ -35,6 +36,44 @@ public:
 	
 	std::shared_ptr<std::map<size_t, SFMFeature>>& SfmFeaturesPtr() {
 		return pSfmFeatures_;
+	}
+
+	void SetSceneUpdateCallback(std::function<void()> callback) {
+		sceneUpdateCallback_ = std::move(callback);
+	}
+
+	// Index of the most recently solved frame (used to highlight it in the viewer).
+	int CurrentFrameId() const {
+		return currentFrameId_;
+	}
+
+	// Whether all frames share a single set of intrinsic parameters.
+	bool ShareIntrinsicParams() const {
+		return shareIntrinsicParams_;
+	}
+
+	// True when the focal length was not provided and was estimated by the algorithm.
+	bool FocalEstimated() const {
+		return focalEstimated_;
+	}
+
+	// Initial focal length estimated by the algorithm (valid when FocalEstimated()).
+	double InitialFocal() const {
+		return initialFocal_;
+	}
+
+	// IDs of the first and second frame used to initialize the reconstruction.
+	std::pair<int, int> StartPair() const {
+		return startPair_;
+	}
+
+	// Number of frames registered via PnP and via Essential/Homography.
+	int PnpCount() const {
+		return pnpCnt_;
+	}
+
+	int EhCount() const {
+		return ehCnt_;
 	}
 
 private:
@@ -214,5 +253,21 @@ private:
 	
 	// List of frames sorted by their potential contribution to the reconstruction.
 	std::vector<std::pair<int,int>> viewsList_;
+
+	// Invoked whenever the reconstructed scene changes (poses / points).
+	std::function<void()> sceneUpdateCallback_ = nullptr;
+
+	// Index of the most recently solved frame, -1 if none yet.
+	int currentFrameId_ = -1;
+
+	// True when the initial focal length was estimated rather than provided.
+	bool focalEstimated_ = false;
+
+	// Initial focal length estimated by the algorithm.
+	double initialFocal_ = -1.0;
+
+	// Counters for the growth method used to register each frame.
+	int pnpCnt_ = 0;
+	int ehCnt_ = 0;
 };
 }

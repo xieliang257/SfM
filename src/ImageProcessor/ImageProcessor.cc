@@ -10,22 +10,15 @@
 #include <cstdint>
 #endif
 
-#include <thread>
 #include "ImageProcessor/ImageProcessor.h"
+#include "FeatureExtractor/SiftExtractor.h"
+#include "FeatureExtractor/XFeatExtractor.h"
+#include "FeatureExtractor/SuperPointExtractor.h"
 
 namespace sfm {
 void CollectImagePath(const std::string& dirPath, std::string format, std::vector<std::string>& files);
 
 void RemoveByMatchGraph(AllMatchesType& matches);
-
-void CrossMatching(const cv::Ptr<cv::DescriptorMatcher>& matcher, const cv::Mat& desc1, const cv::Mat& desc2, 
-    std::vector<cv::DMatch>& match_ij_out, double minDistance);
-
-void CrossMatching(const cv::Mat& desc1, const cv::Mat& desc2, const std::vector<uint64_t>& binarys1,
-    const std::vector<uint64_t>& binarys2, std::vector<cv::DMatch>& matches12, double threshold);
-
-void MixMatching(const cv::Mat& desc1, const cv::Mat& desc2, const std::vector<uint64_t>& binarys1,
-    const std::vector<uint64_t>& binarys2, const std::vector<bool>& flags, std::vector<cv::DMatch>& matches12);
 
 void SimilarityRansac(std::vector<cv::DMatch>& matches, const std::vector<cv::KeyPoint>& kpts1,
     const std::vector<cv::KeyPoint>& kpts2, double trainThreshold, double testThreshold);
@@ -37,6 +30,20 @@ ImageProcessor::ImageProcessor(const std::string& configFile, const std::string&
     configFile_ = configFile;
     pFrames_ = std::make_shared<std::vector<Frame>>();
     pMatches_ = std::make_shared<AllMatchesType>();
+    std::string featureMethod = "sift";
+    cv::FileStorage fs(configFile, cv::FileStorage::READ);
+    if (fs.isOpened()) {
+        featureMethod = fs["feature"]["method"].empty() ? std::string("sift") : (std::string)fs["feature"]["method"];
+        fs.release();
+    }
+    if (featureMethod == "xfeat") {
+        pExtractor_ = std::make_shared<XFeatExtractor>(configFile);
+    } else if (featureMethod == "superpoint") {
+        pExtractor_ = std::make_shared<SuperPointExtractor>(configFile);
+    } else {
+        pExtractor_ = std::make_shared<SiftExtractor>(configFile);
+    }
+    featureMethod_ = featureMethod;
 }
 
 const std::shared_ptr<std::vector<Frame>>& ImageProcessor::FramePtr() {
@@ -61,8 +68,8 @@ const std::shared_ptr<AllMatchesType>& ImageProcessor::MatchesPtr() {
  */
 void ImageProcessor::ExtractAndMatchAll(const std::string& imgDir) {
     // Read previously processed frame data and matching data from a file.
-    ReadFrames(workDir_ + "/Frames.txt", pFrames_);
-    ReadMatches(workDir_ + "/Matches.txt", pMatches_);
+    //ReadFrames(workDir_ + "/Frames.txt", pFrames_);
+    //ReadMatches(workDir_ + "/Matches.txt", pMatches_);
 
     // Check if the frames and matches are already loaded and valid; if so, exit early.
     if (pFrames_ && pMatches_ && pFrames_->size() > 0 && pMatches_->size() > 0) {
@@ -92,8 +99,21 @@ void ImageProcessor::ExtractAndMatchAll(const std::string& imgDir) {
         ++idx;
         std::cout << "\rExtracting (" << idx << "/" << imgPaths.size() << "): " << path << "  ";
         Frame frame(configFile_, workDir_);
+        frame.SetFeatureExtractor(pExtractor_);
         bool flag = frame.LoadAndExtract(path);
         pFrames_->push_back(frame);
+        if (frontendCallback_) {
+            std::vector<cv::Point2f> kpts;
+            kpts.reserve(frame.keypointList_.size());
+            for (const auto& k : frame.keypointList_) {
+                kpts.push_back(k.pt);
+            }
+            auto t1 = cv::getTickCount();
+            double estCost = double(t1 - t0) / cv::getTickFrequency();
+            extractCost_ = estCost;
+            frontendCallback_((int)pFrames_->size() - 1, frame.image_, kpts, -1, cv::Mat(), {}, {},
+                              (int)imgPaths.size(), (int)pFrames_->size(), 0, 0, estCost, 0.0);
+        }
         auto t1 = cv::getTickCount();
         double fs = 1. / cv::getTickFrequency();
         std::cout << "Keypoints: " << frame.keypointList_.size() << "  Cost: " << (t1 - t0) * fs << " s    ";
@@ -274,6 +294,16 @@ void ImageProcessor::MatchAll() {
     auto t0 = cv::getTickCount();
     int matchCnt = 0;
 
+    // Total number of pairs to be processed according to the match graph.
+    int totalPairCnt = 0;
+    for (int i = 0; i < frames.size(); ++i) {
+        for (int j = 0; j < i; ++j) {
+            if (matchGraph.at<int>(i, j) != 0) {
+                ++totalPairCnt;
+            }
+        }
+    }
+
     // Loop over all possible pairs of frames to find matches.
     for (int i = 0; i < frames.size(); ++i) {
         for (int j = 0; j < i; ++j) {
@@ -287,7 +317,8 @@ void ImageProcessor::MatchAll() {
             std::cout << "\rMatching " << i << ", " << j << "  Total Matched: " << matchCnt << " pairs  Cost: " << tcost << " s   ";
             std::vector<cv::DMatch> match_ij, tmpij;
             // Perform cross matching between descriptors of two frames.
-            CrossMatching(frames[i].descList_, frames[j].descList_, frames[i].binaryDescs_, frames[j].binaryDescs_, match_ij, 0.5);
+            pExtractor_->Match(frames[i].descList_, frames[i].binaryDescs_,
+                               frames[j].descList_, frames[j].binaryDescs_, match_ij);
 
             // Check if there are enough matches.
             if (match_ij.size() < 30) {
@@ -315,6 +346,27 @@ void ImageProcessor::MatchAll() {
 
             // Store the final set of matches.
             matches[i][j] = match_ij;
+
+            // Show the current frame's matches in the viewer.
+            if (frontendCallback_) {
+                std::vector<cv::Point2f> kptsI;
+                kptsI.reserve(frames[i].keypointList_.size());
+                for (const auto& k : frames[i].keypointList_) {
+                    kptsI.push_back(k.pt);
+                }
+                std::vector<cv::Point2f> ptsI, ptsJ;
+                ptsI.reserve(match_ij.size());
+                ptsJ.reserve(match_ij.size());
+                for (const auto& m : match_ij) {
+                    ptsI.push_back(frames[i].keypointList_[m.queryIdx].pt);
+                    ptsJ.push_back(frames[j].keypointList_[m.trainIdx].pt);
+                }
+                auto tm = cv::getTickCount();
+                double matchCost = double(tm - t0) / cv::getTickFrequency();
+                frontendCallback_(i, frames[i].image_, kptsI, j, frames[j].image_, ptsJ, ptsI,
+                                  (int)frames.size(), i + 1, totalPairCnt, matchCnt,
+                                  extractCost_, matchCost);
+            }
         }
     }
     std::cout << "\n";
@@ -341,7 +393,6 @@ void ImageProcessor::MatchAll() {
  */
 void ImageProcessor::BuildMatchGraph(cv::Mat& matchGraph) {
     std::vector<Frame>& frames = *pFrames_;
-    cv::Ptr<cv::DescriptorMatcher> matcher = cv::DescriptorMatcher::create(cv::DescriptorMatcher::BRUTEFORCE);
 
     auto t0 = cv::getTickCount();
 
@@ -354,7 +405,7 @@ void ImageProcessor::BuildMatchGraph(cv::Mat& matchGraph) {
         for (int j = 0; j < i; ++j) {
             std::vector<cv::DMatch> match_ij, low_match_ij;
             // Perform cross matching between low-resolution descriptors with a specific ratio.
-            CrossMatching(matcher, frames[i].lDescList_, frames[j].lDescList_, low_match_ij, 0.6);
+            pExtractor_->MatchLowRes(frames[i].lDescList_, frames[j].lDescList_, low_match_ij);
 
             // Apply RANSAC to filter out outlier matches using specified thresholds.
             double lowTrainThreshold = frames[i].LowResWidth() * 0.1;
@@ -443,192 +494,6 @@ void RemoveByMatchGraph(AllMatchesType& matches) {
 }
 
 /**
- * @brief Performs cross-matching between two sets of descriptors to find mutual best matches.
- */
-void CrossMatching(const cv::Ptr<cv::DescriptorMatcher>& matcher, const cv::Mat& desc1, const cv::Mat& desc2,
-    std::vector<cv::DMatch>& match_ij_out, double minDistance) {
-    std::vector<cv::DMatch> match_ij, match_ji;
-    matcher->match(desc1, desc2, match_ij);
-    matcher->match(desc2, desc1, match_ji);
-
-    int inlierId = 0;
-    for (int k = 0; k < match_ij.size(); ++k) {
-        int qId = match_ij[k].queryIdx;
-        int tId = match_ij[k].trainIdx;
-        if (tId < match_ji.size() && qId == match_ji[tId].trainIdx && match_ij[k].distance < minDistance) {
-            match_ij[inlierId] = match_ij[k];
-            ++inlierId;
-        }
-    }
-    match_ij.resize(inlierId);
-    match_ij_out = match_ij;
-}
-
-/**
- * @brief Performs robust cross-matching between two sets of descriptors using both traditional and binary descriptors.
- *
- * This function cross-matches descriptors from two datasets (desc1 and desc2) ensuring mutual consistency and filtering
- * based on a distance threshold. It employs an initial matching from desc1 to desc2, then verifies these matches by
- * ensuring they are the best matches in the opposite direction from desc2 to desc1. The binary descriptors are used
- * to quickly eliminate non-matching descriptors before a more detailed check is done. Matches that pass the threshold
- * check and have reciprocal best matches are considered valid and are stored in the output.
- *
- * @param desc1 Descriptors from the first dataset.
- * @param desc2 Descriptors from the second dataset.
- * @param binarys1 Binary descriptors corresponding to desc1.
- * @param binarys2 Binary descriptors corresponding to desc2.
- * @param matches12 Output vector to store the refined matches.
- * @param threshold The maximum allowed distance for matches to be considered valid.
- */
-void CrossMatching(const cv::Mat& desc1,
-                   const cv::Mat& desc2,
-                   const std::vector<uint64_t>& binarys1,
-                   const std::vector<uint64_t>& binarys2,
-                   std::vector<cv::DMatch>& matches12,
-                   double threshold) {
-
-    // Initial flags to track whether matches from desc1 meet the threshold criteria.
-    std::vector<bool> flags1(desc1.rows, true);
-    std::vector<cv::DMatch> matches1, matches2;
-    // Perform initial matching using descriptors and binary descriptors.
-    MixMatching(desc1, desc2, binarys1, binarys2, flags1, matches1);
-
-    // Flags to mark descriptors in desc2 that meet the match criteria.
-    std::vector<bool> flags2(desc2.rows, false);
-    for (auto& m1 : matches1) {
-        if (m1.distance < threshold) {
-            flags2[m1.trainIdx] = true;
-        }
-    }
-
-    // Verify the initial matches by performing matching in the reverse direction.
-    MixMatching(desc2, desc1, binarys2, binarys1, flags2, matches2);
-
-    // Cross check
-    matches12.clear();
-    for (auto& m1 : matches1) {
-        if (flags2[m1.trainIdx] && m1.queryIdx == matches2[m1.trainIdx].trainIdx) {
-            matches12.push_back(m1);
-        }
-    }
-}
-
-/**
- * @brief Performs feature matching between two descriptor sets using binary and float-based descriptors.
- *
- * This function executes a mixed matching process that combines binary and floating-point descriptor comparisons
- * to refine match quality. Initially, binary descriptors are used to quickly assess and filter potential matches based
- * on a Hamming distance threshold. The most promising matches are then evaluated more rigorously using the Euclidean
- * distance between traditional floating-point descriptors.
- *
- * The function is optimized for performance with multi-threading, dividing the matching process across several threads
- * to leverage modern CPU architectures.
- *
- * @param desc1 Floating-point descriptors for the first image.
- * @param desc2 Floating-point descriptors for the second image.
- * @param binarys1 Binary descriptors corresponding to desc1.
- * @param binarys2 Binary descriptors corresponding to desc2.
- * @param flags A vector of booleans indicating which descriptors in desc1 are eligible for matching.
- * @param matches12 Output vector to store the results of the matching process.
- */
-void MixMatching(const cv::Mat& desc1, const cv::Mat& desc2, const std::vector<uint64_t>& binarys1,
-    const std::vector<uint64_t>& binarys2, const std::vector<bool>& flags, std::vector<cv::DMatch>& matches12) {
-    matches12.resize(desc1.rows);
-    // Lambda function to process a segment of descriptors.
-    auto Func = [&](int start, int end) {
-        int row2 = desc2.rows;
-        // Cost list based on binary descriptor comparison.
-        std::vector<uint32_t> costList(row2);
-        for (int i = start; i < end; ++i) {
-            // Skip descriptors not flagged for matching.
-            if (!flags[i]) {
-                continue;
-            }
-            auto& m = matches12[i];
-            m.queryIdx = i;
-
-            // Retrieve binary descriptors for comparison.
-            auto b1 = binarys1[i * 2];
-            auto b2 = binarys1[i * 2 + 1];
-            auto bin2 = binarys2.data();
-
-            // Histogram of Hamming distances.
-            std::vector<int> costHist(129, 0);
-            for (int j = 0; j < row2; ++j) {
-                // Compute Hamming distance.
-#ifdef _WIN32
-                auto c = __popcnt64(b1 ^ bin2[0]) + __popcnt64(b2 ^ bin2[1]);
-#else
-                auto c = __builtin_popcountll(b1 ^ bin2[0]) + __builtin_popcountll(b2 ^ bin2[1]);
-#endif
-                costHist[c]++;
-                costList[j] = c;
-                bin2 += 2;
-            }
-
-            // Determine the threshold for switching to float comparison.
-            uint32_t costThreshold = 0;
-            uint32_t minCost = 129;
-            int histIntegral = 0;
-            for (int j = 0; j <= 128; ++j) {
-                if (minCost == 129 && costHist[j] > 0) {
-                    minCost = j;
-                }
-                histIntegral += costHist[j];
-                // Threshold based on cumulative histogram.
-                if (histIntegral >= 20) {
-                    costThreshold = j;
-                    break;
-                }
-            }
-
-            costThreshold = std::min(std::max(costThreshold, minCost + 2), minCost + 10);
-            auto ptr1 = desc1.ptr<float>(i);
-            float mins = std::numeric_limits<float>::max();
-            int bestj = 0;
-            for (int j = 0; j < row2; ++j) {
-                // Check against the refined threshold.
-                if (costList[j] <= costThreshold) {
-                    auto ptr2 = desc2.ptr<float>(j);
-
-                    // Squared Euclidean distance.
-                    float s = 0;
-                    for (int k = 0; k < 128; ++k) {
-                        auto d = ptr1[k] - ptr2[k];
-                        s += d * d;
-                    }
-                    // Find the descriptor with the minimum distance.
-                    if (s < mins) {
-                        mins = s;
-                        bestj = j;
-                    }
-
-                }
-            }
-
-            // Record the best match found and compute and store the Euclidean distance.
-            m.trainIdx = bestj;
-            m.distance = sqrt(mins);
-        }
-    };
-
-    // Apply threads to process the matching in parallel.
-    std::vector<std::thread> threads;
-    int numThreads = std::thread::hardware_concurrency();
-    int step = (desc1.rows + numThreads - 1) / numThreads;
-    for (int i = 0; i < numThreads; ++i) {
-        int start = i * step;
-        int end = std::min((i + 1) * step, desc1.rows);
-        threads.emplace_back(Func, start, end);
-    }
-
-    // Wait for all threads to complete.
-    for (auto& t : threads) {
-        t.join();
-    }
-}
-
-/**
  * @brief Performs a RANSAC-based estimation of similarity transformation between matched keypoints from two images.
  *
  * @param matches Input and output vector of matches between keypoints; refined by removing outliers.
@@ -639,6 +504,10 @@ void MixMatching(const cv::Mat& desc1, const cv::Mat& desc2, const std::vector<u
  */
 void SimilarityRansac(std::vector<cv::DMatch>& matches, const std::vector<cv::KeyPoint>& kpts1,
     const std::vector<cv::KeyPoint>& kpts2, double trainThreshold, double testThreshold) {
+    if (matches.size() < 2) {
+        matches.clear();
+        return;
+    }
     int maxIterCnt = 1000;
     cv::RNG rng;
     int maxInliers = 0;

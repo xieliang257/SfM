@@ -1,6 +1,9 @@
 #pragma once
 #include <string>
+#include <memory>
 #include <opencv2/opencv.hpp>
+
+#include "FeatureExtractor/FeatureExtractor.h"
 
 namespace sfm {
 class Frame {
@@ -11,6 +14,7 @@ public:
 	void SetPose(const cv::Mat& R_i_0, const cv::Mat& t_i_0);
 	void SetIntrinsics(const double* intrinsicsPtr, const size_t intrinsicsSize);
 	void SetImageSize(const cv::Size size);
+	void SetFeatureExtractor(const std::shared_ptr<FeatureExtractor>& extractor) { pExtractor_ = extractor; }
 	const cv::Mat& GetPose();
 	const cv::Mat& RotationMatrix();
 	const cv::Mat& TranslationVector();
@@ -46,7 +50,7 @@ public:
 
 private:
 	std::string workDir_;
-	int maxFeatureNum_ = -1;
+	std::shared_ptr<FeatureExtractor> pExtractor_;
 	cv::Size imgSize_ = cv::Size(1500, 2000);
 	cv::Size lowResSize_ = cv::Size(225, 300);
 };

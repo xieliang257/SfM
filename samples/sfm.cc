@@ -4,9 +4,9 @@
 
 int main(int argc, const char* argv[]) {
     const std::string argKeys =
-        "{imgDir    | E:/SFM/data | dataset path}"
-        "{workDir   | E:/SFM/data/sfm_work | dataset path}"
-        "{config    | E:/SFM/data/Config.yaml | config file}";
+        "{imgDir    | path/to/your/SfM/data | dataset path}"
+        "{workDir   | path/to/your/SfM/data/sfm_work | dataset path}"
+        "{config    | path/to/your/SfM/data/Config.yaml | config file}";
 
     cv::CommandLineParser parser(argc, argv, argKeys);
     const std::string imgDir = parser.get<std::string>("imgDir");

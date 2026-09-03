@@ -88,6 +88,11 @@ void WritePly(const std::string& filename,
  */
 void DistanceKNN(const std::vector<cv::Vec3d>& points, int k, std::vector<double>& distances) {
 	int nPoints = points.size();
+	distances.clear();
+	if (nPoints == 0) {
+		return;
+	}
+	k = std::min(k, nPoints);
 	cv::Mat dataset(nPoints, 3, CV_32F);
 	for (int i = 0; i < points.size(); ++i) {
 		dataset.at<float>(i, 0) = points[i](0);
@@ -128,7 +133,7 @@ void System::OutputPointCloud(const std::string& dirPath, const std::shared_ptr<
 	std::vector<cv::Vec3b> colors;
 
 	// Threshold for filtering points based on the viewing angle
-	double threshold = cos(10 * CV_PI / 180);
+	double threshold = cos(1 * CV_PI / 180);
 
 	// Iterate through each feature and select those that meet the visibility and quantity criteria
 	for (const auto& fea : sfmFeatures) {
@@ -142,21 +147,25 @@ void System::OutputPointCloud(const std::string& dirPath, const std::shared_ptr<
 	}
 
 	// Outlier removal based on the distance to the knn in a set of 3D points.
-	std::vector<double> disList;
-	DistanceKNN(objects, 5, disList);
-	auto sortList = disList;
-	std::sort(sortList.begin(), sortList.end());
-	double thr = sortList[sortList.size() * 0.95];
-	int validId = 0;
-	for (int i = 0; i < disList.size(); ++i) {
-		if (disList[i] <= thr) {
-			objects[validId] = objects[i];
-			colors[validId] = colors[i];
-			++validId;
+	// Skip when there are too few points for a meaningful KNN estimate.
+	if (objects.size() > 5) {
+		std::vector<double> disList;
+		DistanceKNN(objects, 5, disList);
+		auto sortList = disList;
+		std::sort(sortList.begin(), sortList.end());
+		const size_t thrIdx = std::min(static_cast<size_t>(sortList.size() * 0.98), sortList.size() - 1);
+		double thr = sortList[thrIdx];
+		int validId = 0;
+		for (int i = 0; i < disList.size(); ++i) {
+			if (disList[i] <= thr) {
+				objects[validId] = objects[i];
+				colors[validId] = colors[i];
+				++validId;
+			}
 		}
+		objects.resize(validId);
+		colors.resize(validId);
 	}
-	objects.resize(validId);
-	colors.resize(validId);
 
 	std::vector<std::vector<cv::Point3f>> cams;
 	// Iterate through frames and calculate camera frustum corners based on pose
@@ -196,9 +205,29 @@ void System::OutputPointCloud(const std::string& dirPath, const std::shared_ptr<
 void System::RunSFM(const std::string& imageDir) {
 	auto t0 = cv::getTickCount();
 
+	// Start the viewer up front so feature extraction and matching can be visualized.
+	viewer_ = std::make_shared<Viewer>();
+	viewer_->Start();
+	viewer_->SetMethod(imageProcessor_->Method());
+	imageProcessor_->SetFrontendCallback(
+		[this](int curFrameId, const cv::Mat& curImg, const std::vector<cv::Point2f>& curKpts,
+		       int refFrameId, const cv::Mat& refImg, const std::vector<cv::Point2f>& refPts,
+		       const std::vector<cv::Point2f>& curPts,
+		       int totalImages, int curImageIdx, int totalPairs, int curPairIdx,
+		       double extractSec, double matchSec) {
+			viewer_->SetFrontendData(curFrameId, curImg, curKpts, refFrameId, refImg, refPts, curPts,
+			                         totalImages, curImageIdx, totalPairs, curPairIdx,
+			                         extractSec, matchSec);
+		});
+
 	// Extract features from the images and match them across images
 	imageProcessor_->ExtractAndMatchAll(imageDir);
 	auto t1 = cv::getTickCount();
+
+	// Frontend (feature/matching) displays are removed once backend reconstruction starts.
+	viewer_->SetFrontendActive(false);
+
+	reconstructor_->SetSceneUpdateCallback([this]() { UpdateViewerData(); });
 
 	// Perform the 3D reconstruction using the extracted features and matches
 	reconstructor_->Reconstruct(imageProcessor_->FramePtr(), imageProcessor_->MatchesPtr());
@@ -213,6 +242,118 @@ void System::RunSFM(const std::string& imageDir) {
 	std::cout << "Image processing time  : " << (t1 - t0) * secondFactor << " s\n";
 	std::cout << "Reconstruction time    : " << (t2 - t1) * secondFactor << " s\n";
 	std::cout << "Output points time     : " << (t3 - t2) * secondFactor << " s\n";
+
+	// Make sure the final result is displayed, then wait for the user to close the window.
+	UpdateViewerData();
+	viewer_->Wait();
+}
+
+void System::UpdateViewerData() {
+	if (!viewer_) {
+		return;
+	}
+	const auto& sfmFeatures = *reconstructor_->SfmFeaturesPtr();
+	const auto& frames = *imageProcessor_->FramePtr();
+	const int curFrameId = reconstructor_->CurrentFrameId();
+
+	std::vector<cv::Vec3d> pts;
+	std::vector<cv::Vec3b> colors;
+	std::vector<uchar> curVisible;
+	pts.reserve(sfmFeatures.size());
+	colors.reserve(sfmFeatures.size());
+	curVisible.reserve(sfmFeatures.size());
+	double threshold = cos(2 * CV_PI / 180);
+	int registeredPoints = 0;
+	for (const auto& fea : sfmFeatures) {
+		if (fea.second.hasObject) {
+			++registeredPoints;
+		}
+		if (fea.second.hasObject && fea.second.cosViewAngle < threshold && fea.second.features.size() >= 2) {
+			cv::Point3f p = fea.second.Xw;
+			pts.push_back(cv::Vec3d(p.x, p.y, p.z));
+			colors.push_back(fea.second.features.front().color);
+			bool visible = false;
+			if (curFrameId >= 0) {
+				for (const auto& obs : fea.second.features) {
+					if (obs.imageId == curFrameId) {
+						visible = true;
+						break;
+					}
+				}
+			}
+			curVisible.push_back(visible ? 1 : 0);
+		}
+	}
+
+	std::vector<cv::Vec3d> camPoses;
+	std::vector<cv::Matx33d> camRots;
+	camPoses.reserve(frames.size());
+	camRots.reserve(frames.size());
+	std::vector<cv::Vec3d> camIntrinsics;
+	camIntrinsics.reserve(frames.size());
+	std::vector<int> frameIdToCamIdx(frames.size(), -1);
+	int currentCam = -1;
+	for (size_t fi = 0; fi < frames.size(); ++fi) {
+		const auto& frm = frames[fi];
+		if (!frm.hasPose_) {
+			continue;
+		}
+		const cv::Mat& R = frm.R_i_w_;
+		const cv::Mat& t = frm.t_i_w_;
+		cv::Vec3d tc(t.at<double>(0), t.at<double>(1), t.at<double>(2));
+		cv::Vec3d c;
+		c(0) = -(R.at<double>(0, 0) * tc(0) + R.at<double>(1, 0) * tc(1) + R.at<double>(2, 0) * tc(2));
+		c(1) = -(R.at<double>(0, 1) * tc(0) + R.at<double>(1, 1) * tc(1) + R.at<double>(2, 1) * tc(2));
+		c(2) = -(R.at<double>(0, 2) * tc(0) + R.at<double>(1, 2) * tc(1) + R.at<double>(2, 2) * tc(2));
+		camPoses.push_back(c);
+		frameIdToCamIdx[fi] = static_cast<int>(camPoses.size()) - 1;
+		cv::Matx33d Rm;
+		for (int i = 0; i < 3; ++i) {
+			for (int j = 0; j < 3; ++j) {
+				Rm(i, j) = R.at<double>(i, j);
+			}
+		}
+		camRots.push_back(Rm);
+		const cv::Mat& K = frm.K_;
+		camIntrinsics.push_back(cv::Vec3d(K.at<double>(0, 0), frm.Width(), frm.Height()));
+		if (static_cast<int>(fi) == curFrameId) {
+			currentCam = static_cast<int>(camPoses.size()) - 1;
+		}
+	}
+
+	// Build edges for cameras that share feature matches.
+	std::vector<std::pair<int,int>> matchEdges;
+	const auto& matches = *imageProcessor_->MatchesPtr();
+	for (int i = 0; i < static_cast<int>(matches.size()); ++i) {
+		if (frameIdToCamIdx[i] < 0) {
+			continue;
+		}
+		for (int j = 0; j < i; ++j) {
+			if (!matches[i][j].empty() && frameIdToCamIdx[j] >= 0) {
+				matchEdges.emplace_back(frameIdToCamIdx[i], frameIdToCamIdx[j]);
+			}
+		}
+	}
+
+	viewer_->SetData(pts, colors, camPoses, camRots, camIntrinsics, curVisible, currentCam, matchEdges);
+
+	int totalImages = 0;
+	int registeredImages = 0;
+	for (const auto& frm : frames) {
+		++totalImages;
+		if (frm.hasPose_) {
+			++registeredImages;
+		}
+	}
+	const auto startPair = reconstructor_->StartPair();
+	const bool shareIntrinsics = reconstructor_->ShareIntrinsicParams();
+	const double currentFocal = shareIntrinsics ? frames.front().intrinsics_[0] : 0.0;
+	viewer_->SetStatus(totalImages, registeredImages, registeredPoints,
+	                   shareIntrinsics, currentFocal,
+	                   reconstructor_->FocalEstimated(), reconstructor_->InitialFocal(),
+	                   startPair.first, startPair.second,
+	                   reconstructor_->PnpCount(), reconstructor_->EhCount(),
+	                   imageProcessor_->Method());
 }
 
 }

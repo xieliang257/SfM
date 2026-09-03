@@ -313,9 +313,9 @@ bool PoseSolver::EssentialSolver(const cv::Mat& K,
 	                             const std::vector<cv::Point2f>& pts2,
 	                             cv::Mat& R_2_1, cv::Mat& t_2_1, std::vector<TriangulateResult>& points,
 	                             double threshold) {
-	// Estimate the camera pose from corresponding points using essential matrix decomposition and perform triangulation.
+	// Estimate the camera pose from corresponding points using essential matrix decomposition.
+	// points returned by EssentialSolver are already triangulated with the chosen pose (identity reference).
 	EssentialSolver(K, pts1, pts2, R_2_1, t_2_1, points, threshold);
-	TriangulatePoints(K, cv::Mat::eye(3, 3, CV_64F), cv::Mat::zeros(3, 1, CV_64F), K, R_2_1, t_2_1, pts1, pts2, points);
 	std::vector<double> scaleList;
 	int validCnt = 0;
 

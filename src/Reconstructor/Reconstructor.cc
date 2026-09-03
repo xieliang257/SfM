@@ -1,4 +1,5 @@
 #include <ceres/ceres.h>
+#include <unordered_map>
 #include "Reconstructor/Reconstructor.h"
 #include "Reconstructor/PoseSolver.h"
 #include "Reconstructor/BaCostFunc.h"
@@ -55,6 +56,11 @@ void Reconstructor::Reconstruct(const std::shared_ptr<std::vector<Frame>>& pFram
 			intrinsics[0] = fInit;
 			(*pFrames_)[i].SetIntrinsics(intrinsics.data(), intrinsics.size());
 		}
+		focalEstimated_ = true;
+		initialFocal_ = fInit;
+	}
+	else {
+		focalEstimated_ = false;
 	}
 
 	// Attempt to start the reconstruction; exit if not successful.
@@ -62,6 +68,9 @@ void Reconstructor::Reconstruct(const std::shared_ptr<std::vector<Frame>>& pFram
 	if (!Start()) {
 		std::cout << "\rCannot start sfm\n";
 		return;
+	}
+	if (sceneUpdateCallback_) {
+		sceneUpdateCallback_();
 	}
 
 	int solvedFrames = 2;
@@ -80,25 +89,37 @@ void Reconstructor::Reconstruct(const std::shared_ptr<std::vector<Frame>>& pFram
 		if (solvedFrames % step == 0) {
 			int iterations = solvedFrames <= 30 ? 30 : 10;
 			GlobalBA(iterations);
+			if (sceneUpdateCallback_) {
+				sceneUpdateCallback_();
+			}
 		}
 
 		// Retrieve keypoints' IDs for the current frame and perform checks and re-triangulation.
 		std::vector<int> ids = (*pFrames)[incrementId].GetKeypointsId();
 
-		double reprojErrThr = 3., cosAngThr = cos(1 * CV_PI / 180);
+		double reprojErrThr = 2., cosAngThr = cos(1 * CV_PI / 180);
 		CheckAndRetrangulation(ids, reprojErrThr, cosAngThr);
+		if (sceneUpdateCallback_) {
+			sceneUpdateCallback_();
+		}
 		auto t1 = cv::getTickCount();
 		double tcost = double(t1 - t0)/cv::getTickFrequency();
 		std::cout << "Total " << solvedFrames << " images solved.  Cost: " << tcost << " s    ";
 	}
+
+	// All frames are registered now; stop highlighting the current frame.
+	currentFrameId_ = -1;
 
 	// Final global bundle adjustment after all frames are processed.
 	GlobalBA(30);
 	std::cout << "\nFinal focal length: " << pFrames_->front().intrinsics_[0] << "\n";
 
 	// Perform a final check and re-triangulation for all features.
-	double reprojErrThr = 1., cosAngThr = cos(3 * CV_PI / 180);
+	double reprojErrThr = 2., cosAngThr = cos(1 * CV_PI / 180);
 	CheckAndRetrangulation(reprojErrThr, cosAngThr);
+	if (sceneUpdateCallback_) {
+		sceneUpdateCallback_();
+	}
 	std::cout << "\nReconstruction done\n\n";
 }
 
@@ -133,6 +154,7 @@ bool Reconstructor::Start() {
 
 	// Set the pose of the second frame relative to the first frame using the found rotation and translation
 	frames[startPair_.second].SetPose(R_2_1, t_2_1);
+	currentFrameId_ = startPair_.second;
 
 	auto& sfmFeatures = *pSfmFeatures_;
 
@@ -199,8 +221,8 @@ double Reconstructor::EstimateFocal() {
 		return bestf;
 	};
 
-	const AllMatchesType& matches = *pMatches_;
-	std::vector<Frame>& frames = *pFrames_;
+	const auto& matches = *pMatches_;
+	const auto& frames = *pFrames_;
 	double cx = (*pFrames_)[0].intrinsics_[1];
 	double cy = (*pFrames_)[0].intrinsics_[2];
 	std::vector<double> focalList;
@@ -257,8 +279,8 @@ bool Reconstructor::FindFirstPair(int& imageId1, int& imageId2, cv::Mat& R, cv::
 	// Initialize frame IDs to invalid values
 	imageId1 = imageId2 = -1;
 
-	const AllMatchesType& matches = *pMatches_;
-	std::vector<Frame>& frames = *pFrames_;
+	const auto& matches = *pMatches_;
+	auto& frames = *pFrames_;
 	std::vector<int> candFramesId;
 
 	// Loop to identify candidate frames based on the number of matches
@@ -395,7 +417,6 @@ int Reconstructor::Increment() {
 
 	// Variable to store the selected frame ID
 	int frameId = -1;
-	static int pnpCnt = 0, ehCnt = 0;
 
 	// Loop to find candidate frames based on the number of views (visible features)
 	while (1) {
@@ -432,7 +453,7 @@ int Reconstructor::Increment() {
 				viewsList_.resize(id);
 				std::sort(viewsList_.begin(), viewsList_.end(), [](std::pair<int, int> a, std::pair<int, int> b) {return a.second < b.second; });
 				if (viewsList_.size() > 3) {
-					viewsList_.assign(viewsList_.end() - 3, viewsList_.end());
+					viewsList_.erase(viewsList_.begin(), viewsList_.end() - 3);
 				}
 			}
 		}
@@ -453,12 +474,14 @@ int Reconstructor::Increment() {
 		bool ehFlag = EHPose(frameId, Reh_i_w, Teh_i_w);
 		if (pnpFlag) {
 			frames[frameId].SetPose(Rpnp_i_w, Tpnp_i_w);
-			++pnpCnt;
+			++pnpCnt_;
+			currentFrameId_ = frameId;
 			break;
 		}
 		else if (ehFlag) {
 			frames[frameId].SetPose(Reh_i_w, Teh_i_w);
-			++ehCnt;
+			++ehCnt_;
+			currentFrameId_ = frameId;
 			break;
 		}
 
@@ -467,12 +490,12 @@ int Reconstructor::Increment() {
 			return -1;
 		}
 	}
-	std::cout << "\rIncrease by PnP (" << pnpCnt << ") E or H (" << ehCnt << ")  ";
+	std::cout << "\rIncrease by PnP (" << pnpCnt_ << ") E or H (" << ehCnt_ << ")  ";
 
 
 	// Triangulate new features for the selected frame
 	double reprojErrThreshold = 3;
-	double cosAngleThreshold = cos(3 * CV_PI / 180);
+	double cosAngleThreshold = cos(1 * CV_PI / 180);
 	for (const auto& kpt : frames[frameId].keypointList_) {
 		int featureId = kpt.class_id;
 		if (featureId != -1 && !sfmFeatures[featureId].hasObject) {
@@ -496,8 +519,8 @@ int Reconstructor::Increment() {
  * @return Returns true if the pose was successfully estimated; otherwise, returns false.
  */
 bool Reconstructor::PnPPose(int frameId, cv::Mat& R_i_w, cv::Mat& t_i_w) {
-	std::vector<Frame>& frames = *pFrames_;
-	AllMatchesType matches = *pMatches_;
+	auto& frames = *pFrames_;
+	const auto& matches = *pMatches_;
 	auto& sfmFeatures = *pSfmFeatures_;
 
 	// Find 3D-2D pairs for PnP solver
@@ -562,7 +585,7 @@ bool Reconstructor::PnPPose(int frameId, cv::Mat& R_i_w, cv::Mat& t_i_w) {
  */
 bool Reconstructor::EHPose(int frameId, cv::Mat& R_i_w, cv::Mat& t_i_w) {
 	std::vector<Frame>& frames = *pFrames_;
-	AllMatchesType matches = *pMatches_;
+	const auto& matches = *pMatches_;
 	auto& sfmFeatures = *pSfmFeatures_;
 
 	// Find a reference frame with the highest number of matches
@@ -588,27 +611,38 @@ bool Reconstructor::EHPose(int frameId, cv::Mat& R_i_w, cv::Mat& t_i_w) {
 	std::vector<cv::Point2f> pts1, pts2; 
 	// Depth information for the reference frame points
 	std::vector<double> depths1;         
+
+	// Index the current frame's keypoints by their track id so each reference
+	// feature is matched in O(1) instead of scanning the whole keypoint list.
+	std::unordered_map<int, cv::Point2f> classToPt;
+	classToPt.reserve(frames[frameId].keypointList_.size());
+	for (const auto& fea2 : frames[frameId].keypointList_) {
+		if (fea2.class_id != -1) {
+			classToPt.emplace(fea2.class_id, fea2.pt);
+		}
+	}
+
 	for (const auto& fea1 : frames[refId].keypointList_) {
 		if (fea1.class_id == -1) {
 			continue;
 		}
-		for (const auto& fea2 : frames[frameId].keypointList_) {
-			if (fea2.class_id == fea1.class_id) {
-				pts1.push_back(fea1.pt);
-				pts2.push_back(fea2.pt);
-				// Default depth
-				double d1 = -1;
-
-				// Calculate depth
-				if (sfmFeatures[fea1.class_id].hasObject) {
-					cv::Point3f Xw = sfmFeatures[fea1.class_id].Xw;
-					cv::Mat Pw = (cv::Mat_<double>(3, 1) << Xw.x, Xw.y, Xw.z);
-					cv::Mat Pcurr = frames[refId].RotationMatrix() * Pw + frames[refId].TranslationVector();
-					d1 = Pcurr.at<double>(2, 0);
-				}
-				depths1.push_back(d1);
-			}
+		auto it = classToPt.find(fea1.class_id);
+		if (it == classToPt.end()) {
+			continue;
 		}
+		pts1.push_back(fea1.pt);
+		pts2.push_back(it->second);
+		// Default depth
+		double d1 = -1;
+
+		// Calculate depth
+		if (sfmFeatures[fea1.class_id].hasObject) {
+			cv::Point3f Xw = sfmFeatures[fea1.class_id].Xw;
+			cv::Mat Pw = (cv::Mat_<double>(3, 1) << Xw.x, Xw.y, Xw.z);
+			cv::Mat Pcurr = frames[refId].RotationMatrix() * Pw + frames[refId].TranslationVector();
+			d1 = Pcurr.at<double>(2, 0);
+		}
+		depths1.push_back(d1);
 	}
 
 	// Ensure there are enough correspondences
@@ -836,7 +870,7 @@ void Reconstructor::BAImplement(const std::vector<int>& constantFrameIds, int ma
 			double py = (double)feature.pt.y;
 			ceres::CostFunction* cost_function = CreateCostFunction(intrinsicsSize_, px, py);
 			if (cost_function) {
-				problem.AddResidualBlock(cost_function, new ceres::HuberLoss(0.5), intrinsicsData, transData, objData);
+				problem.AddResidualBlock(cost_function, new ceres::HuberLoss(2.), intrinsicsData, transData, objData);
 			}	
 		}
 	}

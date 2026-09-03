@@ -2,6 +2,7 @@
 #include <memory>
 #include "ImageProcessor/ImageProcessor.h"
 #include "Reconstructor/Reconstructor.h"
+#include "Viewer/Viewer.h"
 
 namespace sfm {
 /**
@@ -50,6 +51,8 @@ public:
 	void OutputPointCloud(const std::string& dirPath, const std::shared_ptr<std::map<size_t, SFMFeature>>& pSfmFeatures);
 
 private:
+	void UpdateViewerData();
+
 	// Directory for storing output and intermediate files.
 	std::string workDir_;
 
@@ -58,5 +61,8 @@ private:
 
 	// Handles the 3D reconstruction process.
 	std::shared_ptr<Reconstructor> reconstructor_;
+
+	// Real-time viewer of the reconstructed point cloud and camera poses.
+	std::shared_ptr<Viewer> viewer_ = nullptr;
 };
 }

@@ -1,10 +1,43 @@
 %YAML:1.0
 ---
 feature:
-  feature_count: 8000
+  # 特征提取器: sift / xfeat / superpoint
+  method: xfeat
+  xfeat:
+    # --- XFeat (ONNX 推理, 可选) ---
+    # 手写CNN引擎的权重(.bin), 未配置ONNX时使用
+    xfeat_weight: /home/xl/code/SfM/weights/xfeat.bin
+    # ONNX Runtime 模型(tools/export_xfeat_onnx.py 导出), 配置后优先使用。
+    # 注释掉这行即可使用手写CNN引擎
+    xfeat_onnx_weight: /home/xl/code/SfM/weights/xfeat.onnx
+    # 单帧最大特征点数
+    xfeat_top_k: 5000
+    # 匹配阈值(余弦相似度)
+    xfeat_match_threshold: 0.82
+
+  sift:
+    # --- SIFT (OpenCV SIFT, 均匀网格检测 + 128维float描述子 + 二进制Hamming混合匹配) ---
+    # 单帧最大特征点数
+    feature_count: 8000
+
+  superpoint:
+    # --- SuperPoint (ONNX 推理) ---
+    superpoint_weight: /home/xl/code/SfM/weights/superpoint.onnx
+    # 单帧最大关键点数
+    superpoint_top_k: 2000
+    # 粗网格NMS半径(当前固定8邻域, 此值仅作占位)
+    superpoint_nms_radius: 1
+    # 检测阈值(65通道含dustbin softmax后的概率)
+    superpoint_detection_threshold: 0.15
+    # 匹配阈值(描述子余弦相似度, 0.9=较严格)
+    superpoint_match_threshold: 0.9
+    # 输入图像最长边, 超出则等比缩放
+    superpoint_max_dim: 1280
+
+
 
 camera:
-  f: 600
+  f: -600
   cx: 360
   cy: 640
   dist_coeffs: [0.0]
