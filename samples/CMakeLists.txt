@@ -35,3 +35,10 @@ if(EXISTS ${PROJECT_SOURCE_DIR}/lib/libonnxruntime.so)
             ${PROJECT_SOURCE_DIR}/lib/libonnxruntime.so
             $<TARGET_FILE_DIR:SFMDemo>/libonnxruntime.so)
 endif()
+
+if(WIN32 AND EXISTS ${PROJECT_SOURCE_DIR}/lib/onnxruntime.dll)
+    add_custom_command(TARGET SFMDemo POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${PROJECT_SOURCE_DIR}/lib/onnxruntime.dll
+            $<TARGET_FILE_DIR:SFMDemo>/onnxruntime.dll)
+endif()

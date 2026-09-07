@@ -1,5 +1,6 @@
 #include <string>
 #include <fstream>
+#include <iomanip>
 #include "System.h"
 
 namespace sfm {

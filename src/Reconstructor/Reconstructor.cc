@@ -772,9 +772,15 @@ void Reconstructor::BAImplement(const std::vector<int>& constantFrameIds, int ma
 		}
 		else {
 			const std::vector<int> constantIntrinsicVec = { 1,2 };
+#if CERES_VERSION_MAJOR > 2 || (CERES_VERSION_MAJOR == 2 && CERES_VERSION_MINOR >= 1)
+			ceres::Manifold* manifold =
+				new ceres::SubsetManifold(intrinsicsSize_, constantIntrinsicVec);
+			problem.SetManifold(pIntrinsicsCache, manifold);
+#else
 			ceres::SubsetParameterization* subset_parameterization =
 				new ceres::SubsetParameterization(intrinsicsSize_, constantIntrinsicVec);
 			problem.SetParameterization(pIntrinsicsCache, subset_parameterization);
+#endif
 		}
 	}
 
@@ -854,9 +860,15 @@ void Reconstructor::BAImplement(const std::vector<int>& constantFrameIds, int ma
 					}
 					else {
 						const std::vector<int> constantIntrinsicVec = { 1,2 };
+#if CERES_VERSION_MAJOR > 2 || (CERES_VERSION_MAJOR == 2 && CERES_VERSION_MINOR >= 1)
+						ceres::Manifold* manifold =
+							new ceres::SubsetManifold(intrinsicsSize_, constantIntrinsicVec);
+						problem.SetManifold(intrinsicsData, manifold);
+#else
 						ceres::SubsetParameterization* subset_parameterization =
 							new ceres::SubsetParameterization(intrinsicsSize_, constantIntrinsicVec);
 						problem.SetParameterization(intrinsicsData, subset_parameterization);
+#endif
 					}
 					pIntrinsicsCache += intrinsicsSize_;
 				}

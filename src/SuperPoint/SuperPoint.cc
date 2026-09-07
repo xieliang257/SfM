@@ -5,9 +5,27 @@
 #include <iostream>
 #include <limits>
 
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 namespace sfm {
 
 namespace {
+
+#ifdef _WIN32
+// Converts a UTF-8 std::string path to a wchar_t string (ORTCHAR_T on Windows).
+std::wstring ToWide(const std::string& s) {
+    if (s.empty()) {
+        return std::wstring();
+    }
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), nullptr, 0);
+    std::wstring w(len, 0);
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &w[0], len);
+    return w;
+}
+#endif
 
 struct Point3 {
     float x = 0.f, y = 0.f;
@@ -102,7 +120,12 @@ bool SuperPoint::Load(const std::string& modelPath) {
 
     // Create session from file path so ONNX Runtime can resolve
     // external-data files relative to the model directory.
+#if defined(_WIN32)
+    const std::wstring widePath = ToWide(modelPath);
+    ortCheck(ort->CreateSession(env, widePath.c_str(), sessOpt, &session));
+#else
     ortCheck(ort->CreateSession(env, modelPath.c_str(), sessOpt, &session));
+#endif
     ort->ReleaseSessionOptions(sessOpt);
 
     // Get allocator and query input/output names

@@ -97,7 +97,7 @@ void ImageProcessor::ExtractAndMatchAll(const std::string& imgDir) {
     int idx = 0;
     for (const auto& path : imgPaths) {
         ++idx;
-        std::cout << "\rExtracting (" << idx << "/" << imgPaths.size() << "): " << path << "  ";
+        std::cout << "\rExtracting (" << idx << "/" << imgPaths.size() << "): " << path << "  " << std::flush;
         Frame frame(configFile_, workDir_);
         frame.SetFeatureExtractor(pExtractor_);
         bool flag = frame.LoadAndExtract(path);
@@ -230,7 +230,7 @@ void CollectImagePath(const std::string& dirPath, std::string format, std::vecto
     intptr_t hFile = 0;
     struct _finddata_t fileInfo;
     std::string p;
-    if ((hFile = _findfirst(p.assign(dirPath).append("\\*" + format).c_str(), &fileInfo)) != -1) {
+    if ((hFile = _findfirst(p.assign(dirPath).append("\\*." + format).c_str(), &fileInfo)) != -1) {
         do {
             files.push_back(p.assign(dirPath).append("\\").append(fileInfo.name));
         } while (_findnext(hFile, &fileInfo) == 0);
@@ -314,7 +314,7 @@ void ImageProcessor::MatchAll() {
             ++matchCnt;
             auto t1 = cv::getTickCount();
             double tcost = double(t1 - t0) / cv::getTickFrequency();
-            std::cout << "\rMatching " << i << ", " << j << "  Total Matched: " << matchCnt << " pairs  Cost: " << tcost << " s   ";
+            std::cout << "\rMatching " << i << ", " << j << "  Total Matched: " << matchCnt << " pairs  Cost: " << tcost << " s   " << std::flush;
             std::vector<cv::DMatch> match_ij, tmpij;
             // Perform cross matching between descriptors of two frames.
             pExtractor_->Match(frames[i].descList_, frames[i].binaryDescs_,
@@ -401,7 +401,7 @@ void ImageProcessor::BuildMatchGraph(cv::Mat& matchGraph) {
     for (int i = 0; i < frames.size(); ++i) {
         auto t1 = cv::getTickCount();
         double tcost = double(t1 - t0) / cv::getTickFrequency();
-        std::cout << "\rBuilding match graph: " << i << "/" << frames.size() << "  Cost: " << tcost <<" s   ";
+        std::cout << "\rBuilding match graph: " << i << "/" << frames.size() << "  Cost: " << tcost <<" s   " << std::flush;
         for (int j = 0; j < i; ++j) {
             std::vector<cv::DMatch> match_ij, low_match_ij;
             // Perform cross matching between low-resolution descriptors with a specific ratio.

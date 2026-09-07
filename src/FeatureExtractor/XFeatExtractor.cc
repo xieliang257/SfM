@@ -81,6 +81,7 @@ void MixMatchingXFeat(const cv::Mat& desc1, const cv::Mat& desc2,
     }
 
     const int nActive = (int)active.size();
+
     pool.For(nActive, [&](int r, int tid) {
         const int i = active[r];
         auto& m = matches12[i];

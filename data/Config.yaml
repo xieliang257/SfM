@@ -6,10 +6,10 @@ feature:
   xfeat:
     # --- XFeat (ONNX 推理, 可选) ---
     # 手写CNN引擎的权重(.bin), 未配置ONNX时使用
-    xfeat_weight: /home/xl/code/SfM/weights/xfeat.bin
+    # xfeat_weight: "D:/code/SfM/weights/xfeat.bin"
     # ONNX Runtime 模型(tools/export_xfeat_onnx.py 导出), 配置后优先使用。
     # 注释掉这行即可使用手写CNN引擎
-    xfeat_onnx_weight: /home/xl/code/SfM/weights/xfeat.onnx
+    xfeat_onnx_weight: "D:/code/SfM/weights/xfeat.onnx"
     # 单帧最大特征点数
     xfeat_top_k: 5000
     # 匹配阈值(余弦相似度)
@@ -22,7 +22,7 @@ feature:
 
   superpoint:
     # --- SuperPoint (ONNX 推理) ---
-    superpoint_weight: /home/xl/code/SfM/weights/superpoint.onnx
+    superpoint_weight: "D:/code/SfM/weights/superpoint.onnx"
     # 单帧最大关键点数
     superpoint_top_k: 2000
     # 粗网格NMS半径(当前固定8邻域, 此值仅作占位)

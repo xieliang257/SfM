@@ -168,8 +168,8 @@ private:
 	cv::Vec3d projRight_;
 	cv::Vec3d projUp_;
 
-	int width_ = 1920;
-	int height_ = 1280;
+	int width_ = 1440;
+	int height_ = 960;
 	double focal_ = 800.0;
 
 	cv::Vec3d eye_ = cv::Vec3d(-10, 0, 0);

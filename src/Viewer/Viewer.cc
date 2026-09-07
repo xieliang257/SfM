@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 
 namespace sfm {
@@ -196,7 +197,9 @@ void Viewer::OnMouse(int event, int x, int y, int flags) {
 		lastY_ = y;
 		break;
 	case cv::EVENT_MOUSEWHEEL: {
-		const int delta = cv::getMouseWheelDelta(flags);
+		const int rawDelta = cv::getMouseWheelDelta(flags);
+		// Normalize: Windows sends ±120 per notch, Linux ±1.
+		const double delta = rawDelta / 120.0;
 		const double m = std::exp(-delta * kZoomStep);
 		// With Shift held, the wheel resizes the displayed cameras instead of zooming.
 		if (flags & cv::EVENT_FLAG_SHIFTKEY) {

@@ -6,7 +6,6 @@ file(GLOB FeatureManagerSrc "FeatureManager/*.h" "FeatureManager/*.cc")
 file(GLOB ReconstructorSrc "Reconstructor/*.h" "Reconstructor/*.cc")
 file(GLOB SuperPointSrc "SuperPoint/*.h" "SuperPoint/*.cc")
 file(GLOB ViewerSrc "Viewer/*.h" "Viewer/*.cc")
-file(GLOB VocabularySrc "Vocabulary/*.h" "Vocabulary/*.cc")
 file(GLOB XFeatSrc "XFeat/*.h" "XFeat/*.cc")
 
 file(GLOB AllSrc
@@ -18,7 +17,7 @@ file(GLOB AllSrc
     ${ReconstructorSrc}
     ${SuperPointSrc}
     ${ViewerSrc}
-    ${VocabularySrc}
+
     ${XFeatSrc}
 )
 
@@ -26,7 +25,11 @@ source_group(TREE ${PROJECT_SOURCE_DIR}/src FILES ${AllSrc})
 add_library(SFMLib STATIC ${AllSrc})
 target_include_directories(SFMLib PUBLIC ${OpenCV_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/include)
 target_link_directories(SFMLib PUBLIC ${PROJECT_SOURCE_DIR}/lib)
-target_link_libraries(SFMLib PUBLIC ${OpenCV_LIBS} ${CERES_LIBRARIES} libonnxruntime.so)
+if(WIN32)
+    target_link_libraries(SFMLib PUBLIC ${OpenCV_LIBS} ${CERES_LIBRARIES} onnxruntime)
+else()
+    target_link_libraries(SFMLib PUBLIC ${OpenCV_LIBS} ${CERES_LIBRARIES} libonnxruntime.so)
+endif()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(SFMLib PRIVATE $<$<CONFIG:Release>:-march=native>)
